@@ -225,6 +225,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
 
   while (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET) {};
+  HAL_RTC_MspInit(&hrtc);
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 0, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
   display_time();
 
   while (1)
