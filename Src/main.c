@@ -51,6 +51,8 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+#define LCD_MASK (56831UL | (1UL <<13) | (1UL << 9))
+
 static const uint16_t letters[] = {
 		239, //A
 		16758, //B
@@ -82,7 +84,7 @@ static const uint16_t letters[] = {
 
 static const uint16_t digits[] = {
 		3317, // 0
-		129, // 1
+		36, // 1
 		95, // 2
 		126, // 3
 		174, // 4
@@ -105,9 +107,81 @@ static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 HAL_StatusTypeDef LCD_Char(LCD_HandleTypeDef *hlcd, char c, uint8_t p, uint8_t m);
+HAL_StatusTypeDef LCD_Clear(LCD_HandleTypeDef *hlcd, uint8_t p);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
+HAL_StatusTypeDef lcd_set(LCD_HandleTypeDef *hlcd, uint8_t p, uint16_t code, uint8_t sc)
+{
+	HAL_StatusTypeDef ret = HAL_OK;
+	uint8_t i, j;
+	const uint8_t s[] = {2*p, 2*p + 1, 23 - 2*p - 1, 23 - 2*p};
+
+	for(i=0; i<4; i++)
+	{
+		uint32_t data = 0;
+
+		for(j=0; j<4; j++)
+		{
+			if(code & (1UL << (4*i+j)))
+			{
+				data |= (1UL << (s[j] == 0 ? s[j] : s[j] + 2));
+			}
+		}
+
+		if(sc)
+		{
+			ret = HAL_LCD_Write(hlcd, 2*i, 0xFFFFFFFF, data);
+		}
+		else
+		{
+			ret = HAL_LCD_Write(hlcd, 2*i, ~data, 0x00000000);
+		}
+		if(ret != HAL_OK)
+			break;
+	}
+
+	return ret;
+}
+
+void display_time(void)
+{
+	RTC_TimeTypeDef time;
+	RTC_DateTypeDef date;
+	static uint8_t colon = 0x00;
+	static uint8_t counter = 0x00;
+
+	if(HAL_RTC_GetTime(&hrtc, &time, RTC_FORMAT_BCD) != HAL_OK)
+	{
+		_Error_Handler(__FILE__, __LINE__);
+	}
+	HAL_RTC_GetDate(&hrtc, &date, RTC_FORMAT_BCD);
+
+	LCD_Clear(&hlcd, 0);
+	LCD_Char(&hlcd, '0'+(time.Hours >> 4), 0, 0);
+
+	LCD_Clear(&hlcd, 1);
+	LCD_Char(&hlcd, '0'+(time.Hours & 0x0F), 1, colon);
+
+	LCD_Clear(&hlcd, 2);
+	LCD_Char(&hlcd, '0'+(time.Minutes >> 4), 2, 0);
+
+	LCD_Clear(&hlcd, 3);
+	LCD_Char(&hlcd, '0'+(time.Minutes & 0x0F), 3, colon);
+
+	LCD_Clear(&hlcd, 4);
+	LCD_Char(&hlcd, '0'+(time.Seconds >> 4), 4, counter & 0x03);
+
+	LCD_Clear(&hlcd, 5);
+	LCD_Char(&hlcd, '0'+(time.Seconds & 0x0F), 5, (counter >> 2) & 0x03);
+
+	if(HAL_LCD_UpdateDisplayRequest(&hlcd) != HAL_OK)
+	{
+		_Error_Handler(__FILE__, __LINE__);
+	}
+	colon ^= 0x01;
+	counter++;
+}
 
 /* USER CODE END 0 */
 
@@ -149,11 +223,9 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  char c;
-  uint8_t p = 0;
-  uint8_t m = 0;
 
   while (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET) {};
+  display_time();
 
   while (1)
   {
@@ -161,35 +233,12 @@ int main(void)
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
-	  for(c = 'a'; c <= 'z'; c++)
-	  {
-		  if (p > 5)
-		  {
-			  p = 0;
-			  m = 0;
-			  HAL_LCD_Clear(&hlcd);
-		  }
-
-		  if(p > 3)
-		  {
-			  m = 3;
-		  }
-
-		  LCD_Char(&hlcd, c, p++, m);
-		  HAL_LCD_UpdateDisplayRequest(&hlcd);
-		  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-		  if(p == 6)
-		  {
-			  HAL_SuspendTick();
-			  HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_SLEEPENTRY_WFI);
-			  HAL_ResumeTick();
-		  }
-		  else
-		  {
-			  HAL_Delay(100);
-		  }
-		  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-	  }
+	  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+	  HAL_SuspendTick();
+	  HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+	  HAL_ResumeTick();
+	  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+	  display_time();
   }
   /* USER CODE END 3 */
 
@@ -269,7 +318,7 @@ static void MX_LCD_Init(void)
   hlcd.Init.Prescaler = LCD_PRESCALER_8;
   hlcd.Init.Divider = LCD_DIVIDER_25;
   hlcd.Init.Duty = LCD_DUTY_1_4;
-  hlcd.Init.Bias = LCD_BIAS_1_4;
+  hlcd.Init.Bias = LCD_BIAS_1_3;
   hlcd.Init.VoltageSource = LCD_VOLTAGESOURCE_INTERNAL;
   hlcd.Init.Contrast = LCD_CONTRASTLEVEL_4;
   hlcd.Init.DeadTime = LCD_DEADTIME_0;
@@ -314,7 +363,7 @@ if(HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0) != 0x32F2){
 
     /**Initialize RTC and set the Time and Date 
     */
-  sTime.Hours = 0x0;
+  sTime.Hours = 0x8;
   sTime.Minutes = 0x0;
   sTime.Seconds = 0x0;
   sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
@@ -324,10 +373,10 @@ if(HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0) != 0x32F2){
     _Error_Handler(__FILE__, __LINE__);
   }
 
-  sDate.WeekDay = RTC_WEEKDAY_SUNDAY;
+  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
   sDate.Month = RTC_MONTH_FEBRUARY;
   sDate.Date = 0x25;
-  sDate.Year = 0x0;
+  sDate.Year = 0x18;
 
   if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
   {
@@ -336,7 +385,7 @@ if(HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0) != 0x32F2){
 
     /**Enable the WakeUp 
     */
-  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 2, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 0, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
   {
     _Error_Handler(__FILE__, __LINE__);
   }
@@ -407,7 +456,6 @@ static void MX_GPIO_Init(void)
 HAL_StatusTypeDef LCD_Char(LCD_HandleTypeDef *hlcd, char c, uint8_t p, uint8_t m)
 {
 	uint16_t code = 0;
-	uint8_t i, j;
 	HAL_StatusTypeDef ret = HAL_OK;
 
 	if(p > 5)
@@ -445,26 +493,15 @@ HAL_StatusTypeDef LCD_Char(LCD_HandleTypeDef *hlcd, char c, uint8_t p, uint8_t m
 
 	if(ret == HAL_OK)
 	{
-		const uint8_t s[] = {2*p, 2*p+1, 23 - 2*p -1, 23 - 2*p};
-
-		for(i=0; i<4; i++)
-		{
-			uint32_t data = 0;
-			for(j=0; j<4; j++)
-			{
-				if(code & (1UL << (4*i+j)))
-				{
-					data |= (1UL << (s[j] == 0 ? s[j] : s[j] + 2));
-				}
-			}
-
-			ret = HAL_LCD_Write(hlcd, 2*i, 0xFFFFFFFF, data);
-			if(ret != HAL_OK)
-					break;
-		}
+		ret = lcd_set(hlcd, p, code, 1);
 	}
 
 	return ret;
+}
+
+HAL_StatusTypeDef LCD_Clear(LCD_HandleTypeDef *hlcd, uint8_t p)
+{
+	return lcd_set(hlcd, p, LCD_MASK, 0);
 }
 /* USER CODE END 4 */
 
