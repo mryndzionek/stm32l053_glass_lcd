@@ -171,6 +171,7 @@ int main(void)
 
 		  LCD_Char(&hlcd, c, p++, m);
 		  HAL_LCD_UpdateDisplayRequest(&hlcd);
+		  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 		  if(p == 6)
 		  {
 			  HAL_Delay(1000);
@@ -179,6 +180,7 @@ int main(void)
 		  {
 			  HAL_Delay(100);
 		  }
+		  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
 	  }
   }
   /* USER CODE END 3 */
